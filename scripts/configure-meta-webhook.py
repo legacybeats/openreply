@@ -15,7 +15,9 @@ import urllib.request
 
 APP_ID = "1900442214463518"
 CALLBACK = "https://2-29-58-59.sslip.io/api/webhook"
-FIELDS = {"comments", "messages"}
+# Button taps are a separate webhook field from ordinary messages. Do not
+# subscribe read receipts: the approved flow requires an explicit button tap.
+FIELDS = {"comments", "messages", "messaging_postbacks"}
 
 
 def docker(*args):
@@ -68,6 +70,7 @@ def main():
     print("Instagram callback exists:", bool(before))
     print("Callback matches OpenReply:", matches)
     print("Only approved fields configured:", bool(before and names == FIELDS))
+    print("Configured Instagram fields:", ",".join(sorted(names)))
     if not args.apply:
         return
     if before and (not matches or not names.issubset(FIELDS)):
@@ -80,7 +83,7 @@ def main():
     after = current()
     if not after or after.get("callback_url") != CALLBACK or {f["name"] for f in after.get("fields", [])} != FIELDS:
         raise RuntimeError("Webhook readback did not match the requested configuration")
-    print("Verified OpenReply Instagram callback with comments and messages. No account grants or DMs sent.")
+    print("Verified OpenReply Instagram callback with comments, messages and messaging_postbacks. No account grants or DMs sent.")
 
 
 if __name__ == "__main__":

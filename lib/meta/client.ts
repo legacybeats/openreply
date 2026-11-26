@@ -1,5 +1,6 @@
 import { assertOutboundEnabled } from "@/lib/deployment-policy";
 import { getMetaGraphApiVersion, requireEnv } from "@/lib/env";
+import { INSTAGRAM_WEBHOOK_FIELDS } from "@/lib/meta/webhook-fields";
 
 /**
  * A Meta access token and the setup that issued it. A bare string is an
@@ -978,7 +979,7 @@ export async function subscribeInstagramAccountToWebhooks(
         Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
-        subscribed_fields: ["comments", "messages"],
+        subscribed_fields: INSTAGRAM_WEBHOOK_FIELDS,
       }),
     }
   );
