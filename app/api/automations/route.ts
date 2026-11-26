@@ -419,6 +419,7 @@ export async function POST(request: NextRequest) {
       workspaceId,
       instagramAccountId: instagramAccount.id,
       reportShareSlug: generateReportShareSlug(),
+      reportShareEnabled: false,
       ...(linkCreates.length > 0
         ? { trackedLinks: { create: linkCreates } }
         : {}),

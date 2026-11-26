@@ -17,13 +17,13 @@ export type AttachNextReelResult = {
 };
 
 /**
- * Bind each pending "next reel" campaign to the earliest reel published after
+ * Bind each active pending "next reel" campaign to the earliest reel published after
  * it was created. Kept outside the HTTP route so the long-running worker can
  * run the same check on every comment-poll interval.
  */
 export async function attachPendingNextReels(): Promise<AttachNextReelResult> {
   const pending = await prisma.automation.findMany({
-    where: { pendingNextReel: true },
+    where: { pendingNextReel: true, isActive: true },
     include: { instagramAccount: true },
   });
 
@@ -76,15 +76,16 @@ export async function attachPendingNextReels(): Promise<AttachNextReelResult> {
       );
       if (!nextReel) continue;
 
-      await prisma.automation.update({
-        where: { id: automation.id },
+      // A draft stays unbound, including if it was paused during the media fetch.
+      const updated = await prisma.automation.updateMany({
+        where: { id: automation.id, pendingNextReel: true, isActive: true },
         data: {
           postId: nextReel.id,
           postUrl: nextReel.permalink ?? null,
           pendingNextReel: false,
         },
       });
-      bound += 1;
+      bound += updated.count;
     }
   }
 
