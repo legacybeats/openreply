@@ -18,8 +18,10 @@
 # `@/lib/...` imports, because tsx has no tsconfig to resolve the alias
 # against, and no app/generated/prisma to import from).
 
-FROM node:20-slim AS build
+FROM node:22-slim AS build
 WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -27,16 +29,17 @@ RUN npm ci
 COPY . .
 # `npm run build` = `prisma generate && next build` (see package.json) —
 # generates app/generated/prisma AND compiles .next/ in one step.
-RUN npm run build
+RUN NODE_OPTIONS=--max-old-space-size=2560 npm run build
 
-FROM node:20-slim AS runner
+FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
 # scripts/cron.sh calls the /api/cron routes with wget, which node:20-slim does
 # not include.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends wget ca-certificates \
+ && apt-get install -y --no-install-recommends wget ca-certificates openssl \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/node_modules ./node_modules
@@ -51,6 +54,7 @@ COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/next.config.ts ./next.config.ts
 COPY --from=build /app/tsconfig.json ./tsconfig.json
 COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/package-lock.json ./package-lock.json
 
 EXPOSE 3000
 # Default to the web process — the worker service overrides this with

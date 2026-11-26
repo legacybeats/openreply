@@ -2167,3 +2167,6 @@ it("retains the public reply claim if sending succeeded but its log write failed
   expect(sendCommentReply).toHaveBeenCalledTimes(1);
   expect(mockSendPrivateReply).toHaveBeenCalledTimes(1);
 });
+
+// Existing delivery scenarios use mocked providers in the approved-send mode.
+beforeEach(() => { vi.stubEnv("OUTBOUND_MESSAGES_ENABLED", "true"); });

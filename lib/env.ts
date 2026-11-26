@@ -107,13 +107,8 @@ export async function isPublicDemoHost(): Promise<boolean> {
 }
 
 /**
- * Optional sign-in allowlist.
- *
- * A self-hosted instance on a public domain is open to signup: the email
- * provider creates an account for whoever asks for a magic link, and that
- * account gets its own workspace. ALLOWED_EMAILS closes it to a comma-separated
- * list of addresses. Left unset, sign-in behaves exactly as before, so an
- * existing deployment is unaffected.
+ * Mandatory sign-in allowlist for the private WavGrind deployment.
+ * Missing/empty configuration denies access, including magic-link delivery.
  */
 export function isEmailAllowedToSignIn(
   email: string | null | undefined
@@ -123,9 +118,15 @@ export function isEmailAllowedToSignIn(
     .map((entry) => entry.trim().toLowerCase())
     .filter(Boolean);
 
-  if (allowed.length === 0) return true;
+  if (allowed.length === 0) return false;
   if (!email) return false;
-  return allowed.includes(email.toLowerCase());
+  return allowed.includes(email.trim().toLowerCase());
+}
+
+export function isLoginEmailEnabled(): boolean {
+  return process.env.LOGIN_EMAIL_ENABLED === "true" &&
+    Boolean(process.env.RESEND_API_KEY?.trim()) &&
+    Boolean(process.env.EMAIL_FROM?.trim());
 }
 
 export const serverEnvSchema = z.object({

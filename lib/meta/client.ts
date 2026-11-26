@@ -1,3 +1,4 @@
+import { assertOutboundEnabled } from "@/lib/deployment-policy";
 import { getMetaGraphApiVersion, requireEnv } from "@/lib/env";
 
 /**
@@ -195,6 +196,7 @@ export async function sendPrivateReply(
   commentId: string,
   message: string
 ): Promise<{ recipient_id: string; message_id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
@@ -228,6 +230,7 @@ export async function sendPrivateReplyWithButton(
   buttonTitle: string,
   payload: string
 ): Promise<{ recipient_id: string; message_id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
@@ -272,6 +275,7 @@ export async function sendDirectMessageWithButton(
   buttonTitle: string,
   payload: string
 ): Promise<{ recipient_id: string; message_id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
@@ -391,6 +395,7 @@ export async function sendPrivateReplyWithLinkButton(
   text: string,
   buttons: LinkButton[]
 ): Promise<{ recipient_id: string; message_id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
@@ -429,6 +434,7 @@ export async function sendDirectMessage(
   userId: string,
   message: string
 ): Promise<{ recipient_id: string; message_id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
@@ -459,6 +465,7 @@ export async function sendDirectMessageWithLinkButton(
   text: string,
   buttons: LinkButton[]
 ): Promise<{ recipient_id: string; message_id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
@@ -492,6 +499,7 @@ export async function sendCommentReply(
   commentId: string,
   message: string
 ): Promise<{ id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${commentId}/replies`,

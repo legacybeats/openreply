@@ -1,0 +1,109 @@
+# Private staging: NO published ports, NO Meta credentials, NO sending.
+# Uses the server's encrypted Docker Swarm secret store, never a .env file.
+# Build the image locally on the server before `docker stack deploy`.
+version: "3.8"
+
+x-app: &app
+  image: openreply-app:review
+  entrypoint: ["node", "scripts/secret-entrypoint.mjs"]
+  secrets:
+    - source: app
+      target: openreply_app
+      mode: 0400
+  environment:
+    NODE_ENV: production
+    NEXT_TELEMETRY_DISABLED: "1"
+    NEXTAUTH_URL: https://2-29-58-59.sslip.io
+    ALLOWED_EMAILS: legacy@legacybeats.com
+    EMAIL_FROM: OpenReply <legacy@legacybeats.com>
+    LOGIN_EMAIL_ENABLED: "false"
+    META_CONNECTIONS_ENABLED: "false"
+    OUTBOUND_MESSAGES_ENABLED: "false"
+    COMMENT_DM_MAX_PER_HOUR: "100"
+    CRON_BASE_URL: http://web:3000
+  deploy:
+    replicas: 1
+    restart_policy:
+      condition: any
+      delay: 5s
+    resources:
+      limits:
+        memory: 768M
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: openreply
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - source: postgres
+        target: postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d openreply"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  redis:
+    image: redis:7-alpine
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$(cat /run/secrets/redis_password)\" --appendonly yes"]
+    secrets:
+      - source: redis
+        target: redis_password
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$(cat /run/secrets/redis_password) redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+
+  web:
+    <<: *app
+    command: ["sh", "-c", "npx prisma migrate deploy && exec npm run start"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r => process.exit(r.status === 200 ? 0 : 1), () => process.exit(1))"]
+      interval: 20s
+      timeout: 6s
+      retries: 6
+      start_period: 90s
+
+  worker:
+    <<: *app
+    command: ["npm", "run", "worker"]
+
+  cron:
+    <<: *app
+    command: ["sh", "scripts/cron.sh"]
+
+secrets:
+  app:
+    external: true
+    name: openreply_app_v1
+  postgres:
+    external: true
+    name: openreply_postgres_v1
+  redis:
+    external: true
+    name: openreply_redis_v1
+
+volumes:
+  pgdata:
+  redisdata:

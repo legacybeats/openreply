@@ -4,111 +4,41 @@ import { getDMQueue, getRedisConnection } from "@/lib/queue/client";
 import { getWorkerHealth } from "@/lib/ops/worker-health";
 
 export const runtime = "nodejs";
-// Health must reflect live state (worker heartbeat, queue depth), never a
-// cached response, or it reports stale worker start times.
 export const dynamic = "force-dynamic";
 
-type CheckStatus = "ok" | "error";
-
-interface HealthCheck {
-  status: CheckStatus;
-  detail?: string;
-}
-
-async function checkDatabase(): Promise<HealthCheck> {
+// Bound dependency checks and expose statuses only, never exception messages,
+// queue counts, hostnames, process IDs, or heartbeat timestamps.
+async function check(run: () => Promise<boolean>): Promise<"ok" | "error"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await prisma.$queryRaw`SELECT 1`;
-    return { status: "ok" };
-  } catch (error) {
-    return {
-      status: "error",
-      detail: "Database check failed",
-    };
-  }
-}
-
-async function checkRedis(): Promise<HealthCheck> {
-  try {
-    const pong = await getRedisConnection().ping();
-    return { status: pong === "PONG" ? "ok" : "error", detail: pong };
-  } catch (error) {
-    return {
-      status: "error",
-      detail: "Redis check failed",
-    };
-  }
-}
-
-// A fresh heartbeat does not mean the worker is still doing anything. The
-// heartbeat runs on its own interval, so BullMQ's consumer can stop taking jobs
-// — a dropped queue connection, a crashed consumer loop — while the process,
-// and its heartbeat, stay perfectly alive. Health then keeps answering 200
-// while the backlog grows and nobody is served. Seen in production: 385 jobs
-// waiting for hours behind an uptime monitor that never once alerted.
-//
-// A backlog with nothing in flight is the signal, and it is unambiguous: a
-// healthy worker with a concurrency of 5 never leaves jobs waiting with zero
-// active. The threshold only exists to ride out the moment between a job being
-// enqueued and the worker picking it up.
-const STUCK_QUEUE_MIN_WAITING = Number(
-  process.env.HEALTH_STUCK_QUEUE_WAITING ?? 25
-);
-
-async function checkQueue(): Promise<HealthCheck & { counts?: unknown }> {
-  try {
-    const counts = await getDMQueue().getJobCounts(
-      "waiting",
-      "active",
-      "delayed",
-      "failed"
-    );
-    const waiting = counts.waiting ?? 0;
-    const active = counts.active ?? 0;
-    if (waiting >= STUCK_QUEUE_MIN_WAITING && active === 0) {
-      return {
-        status: "error",
-        detail: `${waiting} jobs waiting with none active — the worker is not consuming`,
-        counts,
-      };
-    }
-    return { status: "ok", counts };
-  } catch (error) {
-    return {
-      status: "error",
-      detail: "Queue check failed",
-    };
+    const healthy = await Promise.race([
+      Promise.resolve().then(run),
+      new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), 3000); }),
+    ]);
+    return healthy ? "ok" : "error";
+  } catch {
+    return "error";
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 export async function GET() {
   const [database, redis, queue, worker] = await Promise.all([
-    checkDatabase(),
-    checkRedis(),
-    checkQueue(),
-    getWorkerHealth().catch((error) => ({
-      healthy: false,
-      heartbeat: null,
-      ageMs: null,
-      error: error instanceof Error ? error.message : "Worker check failed",
-    })),
+    check(async () => { await prisma.$queryRaw`SELECT 1`; return true; }),
+    check(async () => (await getRedisConnection().ping()) === "PONG"),
+    check(async () => {
+      const counts = await getDMQueue().getJobCounts("waiting", "active");
+      const configured = Number(process.env.HEALTH_STUCK_QUEUE_WAITING ?? 25);
+      const threshold = Number.isFinite(configured) && configured > 0 ? configured : 25;
+      return (counts.waiting ?? 0) < threshold || (counts.active ?? 0) > 0;
+    }),
+    check(async () => (await getWorkerHealth()).healthy),
   ]);
-
-  const healthy =
-    database.status === "ok" &&
-    redis.status === "ok" &&
-    queue.status === "ok" &&
-    worker.healthy;
-
+  const checks = { database, redis, queue, worker };
+  const healthy = Object.values(checks).every(status => status === "ok");
   return NextResponse.json(
-    {
-      status: healthy ? "ok" : "degraded",
-      checks: {
-        database,
-        redis,
-        queue,
-        worker,
-      },
-    },
-    { status: healthy ? 200 : 503 }
+    { status: healthy ? "ok" : "degraded", checks },
+    { status: healthy ? 200 : 503, headers: { "Cache-Control": "no-store" } }
   );
 }

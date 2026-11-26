@@ -1,3 +1,4 @@
+import { assertOutboundEnabled } from "@/lib/deployment-policy";
 import { createHash, randomUUID } from "node:crypto";
 import * as meta from "@/lib/meta/client";
 import {
@@ -86,6 +87,7 @@ export async function sendPrivateReply({
   message: string;
   postId?: string;
 }) {
+  assertOutboundEnabled();
   if (context.provider === "META")
     return meta.sendPrivateReply(
       context,
@@ -113,6 +115,7 @@ export async function sendPrivateReplyWithButton({
   payload: string;
   postId?: string;
 }) {
+  assertOutboundEnabled();
   if (context.provider === "META")
     return meta.sendPrivateReplyWithButton(
       context,
@@ -146,6 +149,7 @@ export async function sendDirectMessageWithButton({
   buttonTitle: string;
   payload: string;
 }) {
+  assertOutboundEnabled();
   if (context.provider === "META")
     return meta.sendDirectMessageWithButton(
       context,
@@ -178,6 +182,7 @@ export async function sendPrivateReplyWithLinkButton({
   buttons: meta.LinkButton[];
   postId?: string;
 }) {
+  assertOutboundEnabled();
   if (context.provider === "META")
     return meta.sendPrivateReplyWithLinkButton(
       context,
@@ -206,6 +211,7 @@ export async function sendDirectMessage({
   userId: string;
   message: string;
 }) {
+  assertOutboundEnabled();
   if (context.provider === "META")
     return meta.sendDirectMessage(
       context,
@@ -229,6 +235,7 @@ export async function sendDirectMessageWithLinkButton({
   text: string;
   buttons: meta.LinkButton[];
 }) {
+  assertOutboundEnabled();
   if (context.provider === "META")
     return meta.sendDirectMessageWithLinkButton(
       context,
@@ -256,6 +263,7 @@ export async function sendCommentReply({
   message: string;
   postId?: string;
 }) {
+  assertOutboundEnabled();
   if (context.provider === "META")
     return meta.sendCommentReply(context, commentId, message);
   const result = await zernioRequest<{ data: { commentId: string } }>({

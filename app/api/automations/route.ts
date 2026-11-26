@@ -67,7 +67,7 @@ const createAutomationSchema = z
       .optional()
       .nullable(),
     secondaryButtonLabel: z.string().max(20).optional().nullable(),
-    isActive: z.boolean().optional().default(true),
+    isActive: z.boolean().optional().default(false),
     wholeWordMatch: z.boolean().optional().default(true),
   })
   // A campaign must target a specific post, any post, or the next reel.

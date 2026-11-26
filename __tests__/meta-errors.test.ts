@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
   MetaApiError,
   PermissionError,
@@ -68,3 +68,6 @@ describe("Meta error classification", () => {
     await expect(sent).rejects.toMatchObject({ code: 613, subcode: 2534040 });
   });
 });
+
+// Existing delivery tests exercise the explicitly enabled mode with mocked fetch.
+beforeEach(() => { vi.stubEnv("OUTBOUND_MESSAGES_ENABLED", "true"); });
