@@ -1,0 +1,96 @@
+# Production stack for a single public server (WavGrind fork).
+# Differences from docker-compose.yml + docker-compose.app.yml:
+#   - Postgres and Redis are NOT published to the internet (no ports:), Redis needs a password,
+#     Postgres uses a strong password from .env.
+#   - Only Caddy listens publicly (80/443) and gets a free HTTPS certificate for $DOMAIN.
+#   - web is reachable only through Caddy.
+# Run:  docker compose -f docker-compose.prod.yml up -d --build
+# .env must hold (see .env.example): NEXTAUTH_URL=https://$DOMAIN, NEXTAUTH_SECRET, ENCRYPTION_KEY,
+# CRON_SECRET, WEBHOOK_VERIFY_TOKEN, ALLOWED_EMAILS, RESEND_API_KEY, EMAIL_FROM, Meta app ids/secrets,
+# plus DOMAIN, POSTGRES_PASSWORD, REDIS_PASSWORD. Never commit .env.
+
+x-app: &app
+  build: .
+  image: openreply-app:prod
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/openreply
+    REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: openreply
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+  web:
+    <<: *app
+    command: ["sh", "-c", "npx prisma migrate deploy && exec npm run start"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(() => process.exit(0), () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  worker:
+    <<: *app
+    command: ["npm", "run", "worker"]
+
+  cron:
+    <<: *app
+    command: ["sh", "scripts/cron.sh"]
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/openreply
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      CRON_BASE_URL: http://web:3000
+    depends_on:
+      web:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    command: ["caddy", "reverse-proxy", "--from", "${DOMAIN}", "--to", "web:3000"]
+    volumes:
+      - caddydata:/data
+    depends_on:
+      - web
+
+volumes:
+  pgdata:
+  redisdata:
+  caddydata:
