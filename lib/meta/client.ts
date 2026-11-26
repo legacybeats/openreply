@@ -531,6 +531,18 @@ export async function getMediaComments(
   return data.data;
 }
 
+/** Read only creation metadata; webhook receipt time is not comment age. */
+export async function getCommentTimestamp(auth: MetaAuth, commentId: string): Promise<string | null> {
+  const url = new URL(`${instagramGraphBase(auth)}/${encodeURIComponent(commentId)}`);
+  url.searchParams.set("fields", "id,timestamp");
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${tokenOf(auth)}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  const data = await handleResponse<{ id?: string; timestamp?: string }>(response);
+  return data.id === commentId && typeof data.timestamp === "string" ? data.timestamp : null;
+}
+
 /**
  * Recent comments on a media, newest first, each with its replies so the caller
  * can tell whether the account owner has already responded. Pagination stops as

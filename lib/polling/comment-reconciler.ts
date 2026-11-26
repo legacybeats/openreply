@@ -26,6 +26,7 @@
  */
 
 import { MAX_COMMENT_SEND_ATTEMPTS } from "@/lib/queue/comment-delivery";
+import { commentAfterCutover } from "@/lib/automation/comment-cutover";
 import { hasLegacyUnconfirmedDelivery } from "@/lib/instagram/delivery-errors";
 import { prisma } from "@/lib/db/client";
 import { getDMQueue } from "@/lib/queue/client";
@@ -79,6 +80,7 @@ export async function reconcileComments(): Promise<void> {
       keywords: true,
       wholeWordMatch: true,
       publicReplyEnabled: true,
+      commentsNotBefore: true,
       workspaceId: true,
       instagramAccount: {
         select: {
@@ -101,7 +103,7 @@ export async function reconcileComments(): Promise<void> {
   for (const automation of automations) {
     const stat = await sweepCampaign({
       automation: automation,
-      sinceMs: sinceMs,
+      sinceMs: Math.max(sinceMs, automation.commentsNotBefore?.getTime() ?? sinceMs),
       tokenCache: tokenCache,
     }).catch(
       (error): SweepStat => ({
@@ -131,6 +133,7 @@ async function sweepCampaign({
     keywords: string[];
     wholeWordMatch: boolean;
     publicReplyEnabled: boolean;
+    commentsNotBefore: Date | null;
     instagramAccount: {
       id: string;
       instagramId: string;
@@ -209,6 +212,7 @@ async function sweepCampaign({
     // Keep only comments that (a) aren't the account's own, (b) match the
     // keyword, and (c) have no reply from the account owner yet.
     const needsAction = comments.filter((c) => {
+      if (!commentAfterCutover(automation.commentsNotBefore, c.timestamp)) return false;
       const authorId = c.from?.id;
       if (!authorId || authorId === account.instagramId) return false;
 
@@ -275,6 +279,7 @@ async function sweepCampaign({
         instagramAccountId: account.instagramId,
         accountConnectionId: account.id,
         commentId: c.id,
+        commentCreatedAt: c.timestamp,
         commentText: c.text ?? "",
         commenterId: c.from!.id,
         commenterName: c.from?.username,

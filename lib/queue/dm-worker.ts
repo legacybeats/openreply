@@ -5,6 +5,7 @@ import {
   isDeliveryUnconfirmed,
 } from "@/lib/instagram/delivery-errors";
 import { claimCommentDelivery, MAX_COMMENT_SEND_ATTEMPTS } from "./comment-delivery";
+import { commentAfterCutover } from "@/lib/automation/comment-cutover";
 import { createHash } from "node:crypto";
 import { UnrecoverableError, Worker, type Job } from "bullmq";
 import {
@@ -25,6 +26,7 @@ import {
   RateLimitError,
   TokenExpiredError,
   getUserFollowStatus,
+  getCommentTimestamp,
   resolveRecipientName,
   sendCommentReply,
   sendDirectMessage,
@@ -542,6 +544,22 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         },
       });
       continue;
+    }
+
+    // Check before either outbound leg. Old queued/retried webhook jobs have
+    // no creation time, so resolve the actual comment metadata, not job age.
+    if (automation.commentsNotBefore) {
+      let createdAt = job.data.commentCreatedAt;
+      if (!createdAt) {
+        try {
+          createdAt = await getCommentTimestamp({ context: accessToken, commentId }) ?? undefined;
+        } catch {
+          // A metadata failure must never turn into an unguarded send. Let the
+          // queue retry using a generic error that contains no API credential.
+          throw new Error("Comment creation time unavailable; cutover guard blocked delivery");
+        }
+      }
+      if (!commentAfterCutover(automation.commentsNotBefore, createdAt)) continue;
     }
 
     await prisma.dmLog.upsert({
