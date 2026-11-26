@@ -46,16 +46,21 @@ def main():
     ids = docker("ps", "-q", "--filter", "label=com.docker.swarm.service.name=openreply_web").decode().split()
     if len(ids) != 1:
         raise RuntimeError("Expected exactly one running web container")
-    # Captured only in this server process; never forwarded to stdout/stderr.
-    config = json.loads(docker("exec", ids[0], "cat", "/run/secrets/openreply_app"))
-    if not isinstance(config, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in config.items()):
-        raise RuntimeError("Invalid existing app secret")
     refs = {}
     for service in SERVICES:
         attached = json.loads(docker("service", "inspect", service, "--format", "{{json .Spec.TaskTemplate.ContainerSpec.Secrets}}"))
         refs[service] = next(item["SecretName"] for item in attached if item.get("File", {}).get("Name") == "openreply_app")
     if len(set(refs.values())) != 1:
         raise RuntimeError("App services use different secret versions; reconcile before installing a key")
+    task = docker("inspect", ids[0], "--format", '{{index .Config.Labels "com.docker.swarm.task.id"}}').decode().strip()
+    running = json.loads(docker("inspect", "--type", "task", task, "--format", "{{json .Spec.ContainerSpec.Secrets}}"))
+    running_ref = next(item["SecretName"] for item in running if item.get("File", {}).get("Name") == "openreply_app")
+    if running_ref != refs["openreply_web"]:
+        raise RuntimeError("Previous rotation is still starting; wait for healthy services before adding another key")
+    # Captured only in this server process; never forwarded to stdout/stderr.
+    config = json.loads(docker("exec", ids[0], "cat", "/run/secrets/openreply_app"))
+    if not isinstance(config, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in config.items()):
+        raise RuntimeError("Invalid existing app secret")
 
     warnings.simplefilter("error", getpass.GetPassWarning)
     value = getpass.getpass("Paste provider key (hidden): ").strip()
