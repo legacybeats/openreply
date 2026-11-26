@@ -1,0 +1,10 @@
+[Unit]
+Description=Preserve renewed OpenReply certificates in encrypted secrets
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=12h
+Unit=openreply-tls-state.service
+
+[Install]
+WantedBy=timers.target

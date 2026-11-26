@@ -1,0 +1,18 @@
+{
+	email legacy@legacybeats.com
+	admin off
+}
+
+2-29-58-59.sslip.io {
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+	# The server is for the admin UI and approved integration endpoints.
+	# The entry page goes directly to sign-in.
+	@home path /
+	redir @home /login 302
+	reverse_proxy web:3000
+}

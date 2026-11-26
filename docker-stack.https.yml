@@ -1,0 +1,57 @@
+# Overlay on docker-stack.private.yml, after Luke's HTTPS approval.
+# CADDY_STATE_SECRET must be the current name from the server's state pointer.
+version: "3.8"
+services:
+  caddy:
+    image: caddy:2
+    entrypoint: ["sh", "/opt/caddy-start.sh"]
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: host
+    volumes:
+      - type: tmpfs
+        target: /data
+        tmpfs:
+          size: 67108864
+      - type: tmpfs
+        target: /config
+        tmpfs:
+          size: 16777216
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+      - source: caddy_start
+        target: /opt/caddy-start.sh
+    secrets:
+      - source: caddy_state
+        target: caddy_state
+        mode: 0400
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+      resources:
+        limits:
+          memory: 192M
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
+
+configs:
+  caddyfile:
+    file: ./deploy/Caddyfile
+  caddy_start:
+    file: ./scripts/caddy-start.sh
+secrets:
+  caddy_state:
+    external: true
+    name: ${CADDY_STATE_SECRET:?Set the current Docker secret NAME, never its value}
