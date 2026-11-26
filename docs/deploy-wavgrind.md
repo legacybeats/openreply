@@ -43,6 +43,8 @@ The installed `openreply-tls-state.timer` snapshots after boot and every 12 hour
 
 After the approved login-mail setup is enabled, also include `docker-stack.login.yml`. It enables login email on the web service only; Meta connections and outbound delivery remain off. Always read `APP_SECRET_NAME` from the current server pointer before deploying, especially after Luke has privately installed another provider credential. Never redeploy while his installer is running. Docker configs are immutable, so use a new Caddy config name when its source file changes.
 
+For approved account connection setup, also include `docker-stack.connections.yml`: it enables only account connection routes, aligns Graph calls with webhook API v27.0, and leaves outbound delivery off. `scripts/configure-meta-webhook.py` reads app credentials only in server memory. Its default mode inspects the Instagram app subscription; `--apply` verifies/registers comments and messages at `https://2-29-58-59.sslip.io/api/webhook`, refusing to replace a different consumer. It never grants an account or sends a message.
+
 ## Gates before any public pilot
 
 1. HTTPS admin approval and deployment are complete. This is separate from permission to send DMs.
