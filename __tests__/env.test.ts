@@ -5,6 +5,8 @@ import {
   getMissingInstagramOAuthEnv,
   isDemoHostname,
   isEmailAllowedToSignIn,
+  isUnifiedLogin,
+  isDirectInstagramLoginEnabled,
   requireEnv,
 } from "../lib/env";
 
@@ -47,6 +49,20 @@ describe("environment helpers", () => {
       "META_APP_ID",
       "FACEBOOK_APP_SECRET",
     ]);
+  });
+
+  it("requires Instagram credentials after an explicit mode switch, without erasing Unified config", () => {
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "keep-config");
+    vi.stubEnv("META_LOGIN_MODE", "INSTAGRAM");
+    vi.stubEnv("INSTAGRAM_APP_ID", "");
+    vi.stubEnv("INSTAGRAM_APP_SECRET", "");
+    vi.stubEnv("ENCRYPTION_KEY", "a".repeat(64));
+    vi.stubEnv("NEXTAUTH_SECRET", "secret");
+    expect(isDirectInstagramLoginEnabled()).toBe(true);
+    expect(isUnifiedLogin()).toBe(false);
+    expect(getMissingInstagramOAuthEnv()).toEqual(["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"]);
+    vi.stubEnv("META_LOGIN_MODE", "");
+    expect(isUnifiedLogin()).toBe(true);
   });
 });
 

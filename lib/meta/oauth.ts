@@ -27,6 +27,7 @@ const STATE_MAX_AGE_MS = 10 * 60 * 1000;
 interface OAuthStatePayload {
   workspaceId: string;
   ts: number;
+  loginMode: "UNIFIED" | "INSTAGRAM";
 }
 
 function base64UrlEncode(value: string): string {
@@ -45,7 +46,7 @@ function signState(payload: string): string {
 
 export function createOAuthState(workspaceId: string): string {
   const payload = base64UrlEncode(
-    JSON.stringify({ workspaceId, ts: Date.now() } satisfies OAuthStatePayload)
+    JSON.stringify({ workspaceId, ts: Date.now(), loginMode: isUnifiedLogin() ? "UNIFIED" : "INSTAGRAM" } satisfies OAuthStatePayload)
   );
   return `${payload}.${signState(payload)}`;
 }
@@ -70,6 +71,12 @@ export function verifyOAuthState(state: string | null): OAuthStatePayload | null
   try {
     const parsed = JSON.parse(base64UrlDecode(payload)) as OAuthStatePayload;
     if (typeof parsed.workspaceId !== "string" || !parsed.workspaceId) {
+      return null;
+    }
+
+    // A login started before an operator switches providers must not exchange
+    // its code with the other provider. Old states can simply restart login.
+    if (parsed.loginMode !== (isUnifiedLogin() ? "UNIFIED" : "INSTAGRAM")) {
       return null;
     }
 
@@ -113,7 +120,7 @@ export function getAuthorizationUrl(redirectUri: string, state: string): string 
     client_id: requireEnv("INSTAGRAM_APP_ID"),
     redirect_uri: redirectUri,
     scope:
-      "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_manage_insights",
+      "instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments",
     response_type: "code",
     state,
   });
@@ -161,16 +168,23 @@ export async function exchangeCodeForToken(
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(
-      `Token exchange failed: ${error.error_message || JSON.stringify(error)}`
-    );
+    // Provider bodies can contain credentials. The operator can diagnose from
+    // the HTTP status without persisting that body in logs or redirect URLs.
+    throw new Error(`Instagram token exchange failed (HTTP ${response.status})`);
   }
 
   const data = await response.json();
+  // Meta documents a data array; existing integrations also receive a flat
+  // token object. Validate either shape without logging credential-bearing
+  // response bodies if the exchange fails.
+  const token = Array.isArray(data.data) ? data.data[0] : data;
+  if (typeof token?.access_token !== "string" || !token.access_token ||
+      !["string", "number"].includes(typeof token.user_id) || !String(token.user_id)) {
+    throw new Error("Instagram token exchange returned an invalid response");
+  }
   return {
-    accessToken: data.access_token,
-    userId: String(data.user_id),
+    accessToken: token.access_token,
+    userId: String(token.user_id),
   };
 }
 

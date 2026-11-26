@@ -14,6 +14,7 @@ import urllib.parse
 import urllib.request
 
 APP_ID = "1900442214463518"
+INSTAGRAM_APP_ID = "1124733303512268"
 CALLBACK = "https://2-29-58-59.sslip.io/api/webhook"
 # Button taps are a separate webhook field from ordinary messages. Do not
 # subscribe read receipts: the approved flow requires an explicit button tap.
@@ -35,6 +36,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--login-mode", choices=("unified", "instagram"), default="unified")
     args = parser.parse_args()
     if os.geteuid() != 0:
         raise RuntimeError("Run only as root on the OpenReply server")
@@ -42,14 +44,17 @@ def main():
     if len(ids) != 1:
         raise RuntimeError("Wait for exactly one running web container")
     config = json.loads(docker("exec", ids[0], "cat", "/run/secrets/openreply_app"))
-    if config.get("META_APP_ID") != APP_ID or not config.get("FACEBOOK_APP_SECRET") or not config.get("WEBHOOK_VERIFY_TOKEN"):
+    app_id = INSTAGRAM_APP_ID if args.login_mode == "instagram" else APP_ID
+    id_key = "INSTAGRAM_APP_ID" if args.login_mode == "instagram" else "META_APP_ID"
+    secret_key = "INSTAGRAM_APP_SECRET" if args.login_mode == "instagram" else "FACEBOOK_APP_SECRET"
+    if config.get(id_key) != app_id or not config.get(secret_key) or not config.get("WEBHOOK_VERIFY_TOKEN"):
         raise RuntimeError("Required Meta server credentials are not installed")
-    endpoint = f"https://graph.facebook.com/v27.0/{APP_ID}/subscriptions"
+    endpoint = f"https://graph.facebook.com/v27.0/{app_id}/subscriptions"
     opener = urllib.request.build_opener(NoRedirect())
 
     def request(data=None):
         req = urllib.request.Request(endpoint, data=urllib.parse.urlencode(data).encode() if data else None,
-            headers={"Authorization": "Bearer " + APP_ID + "|" + config["FACEBOOK_APP_SECRET"]})
+            headers={"Authorization": "Bearer " + app_id + "|" + config[secret_key]})
         try:
             with opener.open(req, timeout=30) as response:
                 return json.load(response)

@@ -35,13 +35,16 @@ def validate(provider, value):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("provider", choices=("resend", "meta"))
+    parser.add_argument("provider", choices=("resend", "meta", "instagram"))
     parser.add_argument("--config-id", help="Non-secret Meta login configuration ID")
+    parser.add_argument("--app-id", help="Non-secret Instagram app ID")
     args = parser.parse_args()
     if os.geteuid() != 0 or not sys.stdin.isatty() or not Path("/opt/openreply-review").is_dir():
         raise RuntimeError("Use an interactive root terminal on the OpenReply server")
     if args.provider == "meta" and not re.fullmatch(r"[0-9]+", args.config_id or ""):
         raise RuntimeError("Meta requires its non-secret --config-id")
+    if args.provider == "instagram" and args.app_id != "1124733303512268":
+        raise RuntimeError("Instagram requires the approved WavGrind Instagram app ID")
 
     ids = docker("ps", "-q", "--filter", "label=com.docker.swarm.service.name=openreply_web").decode().split()
     if len(ids) != 1:
@@ -68,10 +71,13 @@ def main():
         raise RuntimeError("Key format does not match the selected provider")
     if value != getpass.getpass("Paste it again to confirm (hidden): ").strip():
         raise RuntimeError("Entries did not match; nothing changed")
-    config["RESEND_API_KEY" if args.provider == "resend" else "FACEBOOK_APP_SECRET"] = value
+    key_name = {"resend": "RESEND_API_KEY", "meta": "FACEBOOK_APP_SECRET", "instagram": "INSTAGRAM_APP_SECRET"}[args.provider]
+    config[key_name] = value
     if args.provider == "meta":
         config["META_APP_ID"] = "1900442214463518"
         config["META_LOGIN_CONFIG_ID"] = args.config_id
+    if args.provider == "instagram":
+        config["INSTAGRAM_APP_ID"] = args.app_id
     name = "openreply_app_" + secrets.token_hex(8)
     docker("secret", "create", name, "-", data=json.dumps(config).encode())
     # Store only the non-secret version name before service updates, so an

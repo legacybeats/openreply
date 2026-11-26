@@ -50,6 +50,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   vi.stubEnv("NEXTAUTH_URL", "https://app.test");
   vi.stubEnv("META_CONNECTIONS_ENABLED", "true");
+  vi.stubEnv("META_LOGIN_MODE", "");
   mockPrisma.workspaceMember.findFirst.mockResolvedValue({ role: "OWNER" });
   mockPrisma.instagramAccount.findUnique.mockResolvedValue(null);
   mockPrisma.operationalEvent.create.mockResolvedValue({});
@@ -70,6 +71,43 @@ describe("Instagram OAuth callback", () => {
     expect((await callback()).status).toBe(403);
     expect(mockExchange).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps direct Instagram callbacks blocked by the global connection gate", async () => {
+    vi.stubEnv("META_LOGIN_MODE", "INSTAGRAM");
+    vi.stubEnv("META_CONNECTIONS_ENABLED", "false");
+    expect((await callback()).status).toBe(403);
+    expect(mockExchange).not.toHaveBeenCalled();
+  });
+
+  it("reconnects the same approved account through Instagram Login without creating a duplicate", async () => {
+    vi.stubEnv("META_LOGIN_MODE", "INSTAGRAM");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "retained-config");
+    vi.stubEnv("INSTAGRAM_APP_SECRET", "test-only-secret");
+    mockExchange.mockResolvedValue({ accessToken: "short", userId: "scoped" });
+    mockPrisma.instagramAccount.findUnique.mockResolvedValue({ id: "existing-account" });
+    mockPrisma.instagramAccount.updateMany.mockResolvedValue({ count: 1 });
+    respond({ access_token: "long", expires_in: 5184000 });
+    respond({ id: "scoped", user_id: "professional", username: "wavgrind" });
+    respond({ success: true });
+    expect((await callback()).headers.get("location")).toBe("https://app.test/dashboard?connected=true");
+    expect(urls().every(url => url.startsWith("https://graph.instagram.com/"))).toBe(true);
+    expect(urls()[2]).toMatch(/\/professional\/subscribed_apps$/);
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body).subscribed_fields.sort()).toEqual(["comments", "messages", "messaging_postbacks"].sort());
+    expect(mockPrisma.instagramAccount.updateMany).toHaveBeenCalledWith({where:{id:"existing-account",workspaceId:"workspace",provider:"META"},data:expect.objectContaining({accessToken:"enc:long",metaLogin:"INSTAGRAM",webhookSubscribed:true})});
+    expect(mockPrisma.instagramAccount.create).not.toHaveBeenCalled();
+  });
+
+  it("does not subscribe or save an unapproved direct Instagram account", async () => {
+    vi.stubEnv("META_LOGIN_MODE", "INSTAGRAM");
+    vi.stubEnv("INSTAGRAM_APP_SECRET", "test-only-secret");
+    mockExchange.mockResolvedValue({ accessToken: "short", userId: "scoped" });
+    respond({ access_token: "long", expires_in: 5184000 });
+    respond({ id:"scoped", user_id:"17841447591603859", username:"sonix.audio" });
+    expect((await callback()).headers.get("location")).toContain("instagram=already_connected");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.instagramAccount.create).not.toHaveBeenCalled();
+    expect(mockPrisma.instagramAccount.updateMany).not.toHaveBeenCalled();
   });
 
   it("connects only approved accounts from a mixed Unified grant, on graph.facebook.com", async () => {

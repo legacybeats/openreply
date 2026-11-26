@@ -1,20 +1,23 @@
 import { createHmac } from "crypto";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
   createOAuthState,
   decryptToken,
   encryptToken,
+  exchangeCodeForToken,
   getAuthorizationUrl,
   verifyOAuthState,
 } from "../lib/meta/oauth";
 
 beforeEach(() => {
+  vi.unstubAllEnvs();
   vi.stubEnv("NEXTAUTH_SECRET", "test-secret-with-enough-length");
   vi.stubEnv(
     "ENCRYPTION_KEY",
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
   );
 });
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("OAuth state and token encryption", () => {
   it("round-trips encrypted tokens", () => {
@@ -37,7 +40,7 @@ describe("OAuth state and token encryption", () => {
   // unusual shape, so verifyOAuthState is exercised on its own validation
   // rather than on the signature check.
   const signedState = (payload: Record<string, unknown>) => {
-    const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+    const encoded = Buffer.from(JSON.stringify({ loginMode: "INSTAGRAM", ...payload })).toString("base64url");
     const signature = createHmac("sha256", process.env.NEXTAUTH_SECRET!)
       .update(encoded)
       .digest("base64url");
@@ -85,6 +88,14 @@ describe("OAuth state and token encryption", () => {
       )
     ).toBeNull();
   });
+
+  it("rejects an in-flight Unified login after switching to Instagram Login", () => {
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "config");
+    const state = createOAuthState("workspace_123");
+    vi.stubEnv("META_LOGIN_MODE", "INSTAGRAM");
+    expect(verifyOAuthState(state)).toBeNull();
+    expect(verifyOAuthState(createOAuthState("workspace_123"))?.loginMode).toBe("INSTAGRAM");
+  });
 });
 
 describe("authorization URL", () => {
@@ -94,6 +105,19 @@ describe("authorization URL", () => {
     const url = new URL(getAuthorizationUrl("https://app.test/cb", "s"));
     expect(url.origin).toBe("https://www.instagram.com");
     expect(url.searchParams.get("scope")).toContain("instagram_business_basic");
+    expect(url.searchParams.get("scope")?.split(",").sort()).toEqual([
+      "instagram_business_basic", "instagram_business_manage_comments", "instagram_business_manage_messages",
+    ]);
+  });
+
+  it("honours an explicit Instagram mode while retaining the Unified configuration", () => {
+    vi.stubEnv("INSTAGRAM_APP_ID", "123");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "456");
+    vi.stubEnv("META_LOGIN_MODE", "INSTAGRAM");
+    const url = new URL(getAuthorizationUrl("https://app.test/cb", "s"));
+    expect(url.origin).toBe("https://www.instagram.com");
+    expect(url.searchParams.get("client_id")).toBe("123");
+    expect(url.searchParams.has("config_id")).toBe(false);
   });
 
   it("uses the Facebook dialog with config_id under Unified login", () => {
@@ -110,5 +134,29 @@ describe("authorization URL", () => {
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("state")).toBe("s");
     expect(url.searchParams.has("scope")).toBe(false);
+  });
+});
+
+describe("Instagram code exchange", () => {
+  it.each(["flat", "array"])("accepts the %s token response and keeps secrets in the POST body", async shape => {
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "config-retained");
+    vi.stubEnv("META_LOGIN_MODE", "INSTAGRAM");
+    vi.stubEnv("INSTAGRAM_APP_ID", "123");
+    vi.stubEnv("INSTAGRAM_APP_SECRET", "test-only-secret");
+    const token = { access_token: "test-only-token", user_id: "456" };
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(shape === "array" ? { data: [token] } : token)));
+    vi.stubGlobal("fetch", fetch);
+    await expect(exchangeCodeForToken("test-code", "https://app.test/cb")).resolves.toEqual({accessToken:token.access_token,userId:"456"});
+    expect(fetch.mock.calls[0][0]).toBe("https://api.instagram.com/oauth/access_token");
+    expect(fetch.mock.calls[0][1].method).toBe("POST");
+    expect(new URLSearchParams(fetch.mock.calls[0][1].body).get("client_secret")).toBe("test-only-secret");
+  });
+
+  it("does not include a malformed credential response in errors", async () => {
+    vi.stubEnv("META_LOGIN_MODE", "INSTAGRAM");
+    vi.stubEnv("INSTAGRAM_APP_ID", "123");
+    vi.stubEnv("INSTAGRAM_APP_SECRET", "test-only-secret");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ access_token:"do-not-log" }))));
+    await expect(exchangeCodeForToken("c", "https://app.test/cb")).rejects.toThrow("Instagram token exchange returned an invalid response");
   });
 });

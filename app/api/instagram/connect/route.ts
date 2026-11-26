@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { canManageWorkspace, getCurrentWorkspaceContext } from "@/lib/workspace-access";
-import { getBaseUrl, getMissingInstagramOAuthEnv, isUnifiedLogin } from "@/lib/env";
+import { getBaseUrl, getMissingInstagramOAuthEnv, isUnifiedLogin, isDirectInstagramLoginEnabled } from "@/lib/env";
 import { areMetaConnectionsEnabled } from "@/lib/deployment-policy";
 import { createOAuthState, getAuthorizationUrl } from "@/lib/meta/oauth";
 
 export async function GET() {
-  if (!areMetaConnectionsEnabled() || !isUnifiedLogin()) {
+  if (!areMetaConnectionsEnabled() || (!isUnifiedLogin() && !isDirectInstagramLoginEnabled())) {
     return NextResponse.json({ error: "Account connections are disabled pending setup approval" }, { status: 403 });
   }
   const context = await getCurrentWorkspaceContext();

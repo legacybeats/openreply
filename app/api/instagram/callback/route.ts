@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
-import { getBaseUrl, isUnifiedLogin, requireEnv } from "@/lib/env";
+import { getBaseUrl, isUnifiedLogin, isDirectInstagramLoginEnabled, requireEnv } from "@/lib/env";
 import { canConnectInstagramAccount } from "@/lib/instagram-accounts";
 import {
   getAssignedInstagramAccounts,
@@ -19,7 +19,7 @@ import { canManageWorkspace } from "@/lib/workspace-access";
 import { areMetaConnectionsEnabled, isAllowedInstagramAccount } from "@/lib/deployment-policy";
 
 export async function GET(request: NextRequest) {
-  if (!areMetaConnectionsEnabled() || !isUnifiedLogin()) {
+  if (!areMetaConnectionsEnabled() || (!isUnifiedLogin() && !isDirectInstagramLoginEnabled())) {
     return NextResponse.json({ error: "Account connections are disabled pending setup approval" }, { status: 403 });
   }
   const code = request.nextUrl.searchParams.get("code");

@@ -67,7 +67,14 @@ export function getMetaGraphApiVersion(): string {
 // connect: each account records the login that issued its token, so accounts
 // already connected through Instagram Login keep working either way.
 export function isUnifiedLogin(): boolean {
+  // An explicit operator choice lets new connections use Instagram Login
+  // without deleting the existing Unified configuration or account tokens.
+  if (isDirectInstagramLoginEnabled()) return false;
   return Boolean(process.env.META_LOGIN_CONFIG_ID);
+}
+
+export function isDirectInstagramLoginEnabled(): boolean {
+  return process.env.META_LOGIN_MODE === "INSTAGRAM";
 }
 
 /**
