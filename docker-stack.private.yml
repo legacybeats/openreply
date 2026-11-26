@@ -96,7 +96,7 @@ services:
 secrets:
   app:
     external: true
-    name: openreply_app_v1
+    name: ${APP_SECRET_NAME:-openreply_app_v1}
   postgres:
     external: true
     name: openreply_postgres_v1

@@ -21,6 +21,8 @@ Secrets are named `openreply_app_v1`, `openreply_postgres_v1`, `openreply_redis_
 
 Later, enter Resend and Meta credentials directly into the server secret store through a private operator session, using hidden input and stdin. Rotate by creating a new version of the app secret and updating service references; never overwrite local configuration with secrets. Provider credentials and Instagram grants have not been set up by this deployment.
 
+`scripts/install-provider-secret.py resend` (or `meta --config-id <non-secret-ID>`) prepares this flow for an interactive root terminal on the server. Luke enters the credential twice into hidden prompts. It captures the current secret only in server process memory, creates a new encrypted Docker secret and rotates web/worker/cron. It does not enable any sending or connection gate. Do not run the input step in an agent-recorded terminal. After any rotation, export `APP_SECRET_NAME` from `/var/lib/openreply/app-secret-name` before every stack redeploy; that file contains only a version name. If interrupted after the name is saved, deploy the stack with that pointer to finish the rotation, then verify service health. Old encrypted secret versions remain for recovery.
+
 ## Build and start (server operator)
 
 1. Inspect the existing server, branch, source archive and secret names. Do not replace another session's deployment.
