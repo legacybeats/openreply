@@ -145,7 +145,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   const [selectedAccountId, setSelectedAccountId] = useState("");
 
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [isActive, setIsActive] = useState(true);
+  const [isActive, setIsActive] = useState(false);
 
   const [triggerScope, setTriggerScope] = useState<TriggerScope>("specific");
   const [postId, setPostId] = useState<string | null>(null);
@@ -622,11 +622,11 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
             ))}
           <button
             type="button"
-            onClick={() => handleSubmit(mode === "new" ? true : isActive)}
+            onClick={() => handleSubmit(mode === "new" ? false : isActive)}
             disabled={saving}
             className="rounded-lg bg-accent px-5 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
           >
-            {saving ? t("Saving…") : mode === "new" ? t("Go Live") : t("Save changes")}
+            {saving ? t("Saving…") : mode === "new" ? t("Save draft") : t("Save changes")}
           </button>
         </div>
       </div>
