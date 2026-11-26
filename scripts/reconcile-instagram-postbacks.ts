@@ -10,7 +10,7 @@ import { INSTAGRAM_WEBHOOK_FIELDS } from "@/lib/meta/webhook-fields";
 
 const APP_ID = "1900442214463518";
 const approved = new Set<string>(INSTAGRAM_WEBHOOK_FIELDS);
-type Subscription = { id: string; subscribed_fields?: string[] };
+type Subscription = { id?: string; app_id?: string; subscribed_fields?: string[] };
 
 async function main() {
   if (!existsSync("/run/secrets/openreply_app")) throw new Error("server-only");
@@ -47,8 +47,12 @@ async function main() {
 
   async function current() {
     const data = await request();
-    const subscription = data.data?.find(item => item.id === APP_ID);
-    if (!subscription) throw new Error("existing-subscription-missing");
+    // Unified login returns app_id; Instagram login may return id.
+    const subscription = data.data?.find(item => String(item.app_id ?? item.id) === APP_ID);
+    if (!subscription) {
+      console.log(JSON.stringify({ account: "wavgrind", subscriptionShape: data.data?.map(item => ({ keys: Object.keys(item), appId: /^\d+$/.test(String(item.app_id ?? item.id)) ? String(item.app_id ?? item.id) : null, fields: item.subscribed_fields ?? [] })) ?? null }));
+      throw new Error("existing-subscription-missing");
+    }
     const fields = subscription.subscribed_fields;
     if (!Array.isArray(fields) || fields.some(field => !approved.has(field))) {
       throw new Error("unexpected-existing-fields");
