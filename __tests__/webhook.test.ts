@@ -10,8 +10,46 @@ import {
   parseCommentEvents,
   parseMessageEvents,
   parseReadEvents,
+  parsePostbackEvents,
 } from "../lib/meta/webhook";
 import { createHmac } from "crypto";
+
+describe("messaging changes envelopes", () => {
+  type MessagingEvent = NonNullable<Parameters<typeof parsePostbackEvents>[0]["entry"][number]["messaging"]>[number];
+  const value: MessagingEvent = {
+    sender: { id: "tester" }, recipient: { id: "account" },
+    postback: { mid: "tap_1", payload: "followcheck:campaign:open" },
+    message: { mid: "message_1", text: "hello" },
+    read: { watermark: 123 },
+  };
+  const payload = (field: string, event = value) => ({
+    object: "instagram", entry: [{ id: "account", time: 1, changes: [{ field, value: event }] }],
+  });
+
+  it("parses a Meta dashboard-style postback without treating it as a text message", () => {
+    expect(parsePostbackEvents(payload("messaging_postbacks"))).toEqual([
+      { instagramAccountId: "account", userId: "tester", mid: "tap_1", payload: "followcheck:campaign:open" },
+    ]);
+    expect(parseMessageEvents(payload("messaging_postbacks"))).toEqual([]);
+  });
+  it("parses an incoming message in a changes envelope", () => {
+    expect(parseMessageEvents(payload("messages"))).toEqual([
+      { instagramAccountId: "account", senderId: "tester", messageId: "message_1", messageText: "hello" },
+    ]);
+    expect(parsePostbackEvents(payload("messages"))).toEqual([]);
+  });
+  it("retains echo and self-event filtering", () => {
+    expect(parseMessageEvents(payload("messages", { ...value, message: { ...value.message, is_echo: true } }))).toEqual([]);
+    expect(parsePostbackEvents(payload("messaging_postbacks", { ...value, sender: { id: "account" } }))).toEqual([]);
+  });
+  it("does not reinterpret unrelated fields as taps or messages", () => {
+    for (const field of ["comments", "standby", "unrecognised"]) {
+      expect(parsePostbackEvents(payload(field))).toEqual([]);
+      expect(parseMessageEvents(payload(field))).toEqual([]);
+      expect(parseReadEvents(payload(field))).toEqual([]);
+    }
+  });
+});
 
 // Mock the environment variable
 beforeEach(() => {

@@ -11,7 +11,7 @@ beforeEach(()=>{vi.clearAllMocks();mocks.signature.mockReturnValue(true);mocks.r
 describe('webhook ingress diagnostics',()=>{
   it('records a metadata-only receipt even when processing excludes the account',async()=>{
     expect((await POST(request())).status).toBe(200);
-    expect(mocks.receipt).toHaveBeenCalledWith({data:{source:'SYSTEM',level:'INFO',message:'Meta webhook received',payload:{object:'instagram',entries:1,comments:0,postbacks:1,postbacksInChanges:0,messages:0,reads:0,standby:0}}});
+    expect(mocks.receipt).toHaveBeenCalledWith({data:{source:'SYSTEM',level:'INFO',message:'Meta webhook received',payload:{object:'instagram',entries:1,comments:0,postbacks:1,postbacksInChanges:0,messages:0,messagesInChanges:0,reads:0,readsInChanges:0,standby:0}}});
     expect(mocks.process).toHaveBeenCalledWith({payload,provider:'META'});
   });
   it('continues processing if diagnostic storage fails',async()=>{

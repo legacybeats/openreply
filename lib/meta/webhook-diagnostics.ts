@@ -8,13 +8,15 @@ export function summarizeWebhookReceipt(payload: unknown) {
   const root = record(payload);
   const entries = items(root.entry);
   let comments = 0, postbacks = 0, messages = 0, reads = 0, standby = 0;
-  let postbacksInChanges = 0;
+  let postbacksInChanges = 0, messagesInChanges = 0, readsInChanges = 0;
   for (const rawEntry of entries) {
     const entry = record(rawEntry);
     for (const rawChange of items(entry.changes)) {
       const change = record(rawChange);
       if (change.field === 'comments') comments++;
       if (change.field === 'messaging_postbacks') postbacksInChanges++;
+      if (change.field === 'messages') messagesInChanges++;
+      if (change.field === 'messaging_seen') readsInChanges++;
     }
     for (const rawMessage of items(entry.messaging)) {
       const message = record(rawMessage);
@@ -26,6 +28,7 @@ export function summarizeWebhookReceipt(payload: unknown) {
   }
   return {
     object: root.object === 'instagram' ? 'instagram' : root.object === 'page' ? 'page' : 'other',
-    entries: entries.length, comments, postbacks, postbacksInChanges, messages, reads, standby,
+    entries: entries.length, comments, postbacks, postbacksInChanges,
+    messages, messagesInChanges, reads, readsInChanges, standby,
   };
 }
