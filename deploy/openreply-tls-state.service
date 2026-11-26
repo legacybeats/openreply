@@ -1,0 +1,9 @@
+[Unit]
+Description=Persist OpenReply TLS state into Docker secrets
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/openreply-review/scripts/caddy-secret-state.py snapshot
+UMask=0077

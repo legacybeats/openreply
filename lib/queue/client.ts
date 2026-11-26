@@ -26,6 +26,8 @@ export interface ProcessCommentJob {
   accountConnectionId?: string;
   instagramAccountId: string;
   commentId: string;
+  // Actual creation time supplied by the comment API, never enqueue/receipt time.
+  commentCreatedAt?: string;
   commentText: string;
   commenterId: string;
   commenterName?: string;

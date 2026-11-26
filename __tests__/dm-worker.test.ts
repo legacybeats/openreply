@@ -6,6 +6,7 @@ const {
   mockSendPrivateReplyWithLinkButton,
   mockSendPrivateReplyWithButton,
   mockGetUserFollowStatus,
+  mockGetCommentTimestamp,
   mockSendDirectMessageWithButton,
   mockSendDirectMessage,
   mockSendDirectMessageWithLinkButton,
@@ -47,6 +48,7 @@ const {
   mockSendPrivateReplyWithLinkButton: vi.fn(),
   mockSendPrivateReplyWithButton: vi.fn(),
   mockGetUserFollowStatus: vi.fn(),
+  mockGetCommentTimestamp: vi.fn(),
   mockSendDirectMessageWithButton: vi.fn(),
   mockSendDirectMessage: vi.fn(),
   mockSendDirectMessageWithLinkButton: vi.fn(),
@@ -72,6 +74,7 @@ vi.mock("@/lib/meta/client", () => ({
   sendPrivateReplyWithLinkButton: mockSendPrivateReplyWithLinkButton,
   sendPrivateReplyWithButton: mockSendPrivateReplyWithButton,
   getUserFollowStatus: mockGetUserFollowStatus,
+  getCommentTimestamp: mockGetCommentTimestamp,
   sendDirectMessageWithButton: mockSendDirectMessageWithButton,
   sendDirectMessage: mockSendDirectMessage,
   sendDirectMessageWithLinkButton: mockSendDirectMessageWithLinkButton,
@@ -306,6 +309,65 @@ beforeEach(() => {
     message_id: "msg_006",
   });
   mockGetUserFollowStatus.mockResolvedValue(true);
+  mockGetCommentTimestamp.mockReset().mockResolvedValue(null);
+});
+
+describe("migration cutoff blocks historical comments before either outbound leg", () => {
+  const cutoff = new Date("2026-11-27T00:00:00.000Z");
+  beforeEach(() => {
+    mockPrisma.automation.findMany.mockResolvedValue([{
+      ...mockAutomation, commentsNotBefore: cutoff,
+      publicReplyEnabled: true, publicReplyMessages: ["Check DMs"],
+    }]);
+  });
+
+  it.each(["2026-11-26T23:59:59Z", "2026-11-27T00:00:00Z", "invalid"])(
+    "does not send a polled comment from %s", async (commentCreatedAt) => {
+      await getProcessor()(createMockJob({ ...mockJobData, commentCreatedAt, source: "POLLING" }));
+      expect(mockPrisma.dmLog.upsert).not.toHaveBeenCalled();
+      expect(mockPrisma.dmLog.updateMany).not.toHaveBeenCalled();
+      expect(mockSendPrivateReply).not.toHaveBeenCalled();
+      expect(mockReserveDMSlot).not.toHaveBeenCalled();
+      expect(mockGetCommentTimestamp).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["2026-11-20T00:00:00Z", null, "invalid"])(
+    "checks old queued webhook jobs against real creation metadata (%s)", async (created) => {
+      mockGetCommentTimestamp.mockResolvedValue(created);
+      await getProcessor()(createMockJob({ ...mockJobData, source: "WEBHOOK", slotAt: Date.now() }));
+      expect(mockGetCommentTimestamp).toHaveBeenCalledWith(META_AUTH, "comment_555");
+      expect(mockPrisma.dmLog.upsert).not.toHaveBeenCalled();
+      expect(mockPrisma.dmLog.updateMany).not.toHaveBeenCalled();
+      expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    },
+  );
+
+  it("fails closed when metadata lookup fails", async () => {
+    mockGetCommentTimestamp.mockRejectedValue(new Error("provider failed"));
+    await expect(getProcessor()(createMockJob())).rejects.toThrow("cutover guard blocked delivery");
+    expect(mockPrisma.dmLog.upsert).not.toHaveBeenCalled();
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+  });
+
+  it("delivers a fresh webhook comment after checking creation time", async () => {
+    mockGetCommentTimestamp.mockResolvedValue("2026-11-27T00:00:01Z");
+    await getProcessor()(createMockJob());
+    expect(mockGetCommentTimestamp).toHaveBeenCalledOnce();
+    expect(mockSendPrivateReply).toHaveBeenCalledOnce();
+  });
+
+  it("allows an unaffected campaign while blocking the old migrated match", async () => {
+    mockPrisma.automation.findMany.mockResolvedValue([
+      { ...mockAutomation, commentsNotBefore: cutoff },
+      { ...mockAutomation, id: "unmigrated", commentsNotBefore: null },
+    ]);
+    await getProcessor()(createMockJob({ ...mockJobData, commentCreatedAt: "2026-11-20T00:00:00Z" }));
+    expect(mockSendPrivateReply).toHaveBeenCalledOnce();
+    expect(mockPrisma.dmLog.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { automationId_commentId: { automationId: "unmigrated", commentId: "comment_555" } },
+    }));
+  });
 });
 
 
@@ -1853,6 +1915,50 @@ describe("durable Zernio postback delivery", () => {
 describe("DM Worker — follow-gate re-check", () => {
   const gated = { ...mockAutomation, requireFollow: true, trackedLinks: [] };
 
+  it.each([false, null])("holds an old reveal button when follow status is %s", async (follows) => {
+    mockPrisma.automation.findFirst.mockResolvedValue(gated);
+    mockGetUserFollowStatus.mockResolvedValue(follows);
+    await getProcessor()(createMockPostbackJob({
+      instagramAccountId: "ig_456",
+      userId: "commenter_999",
+      payload: "reveal:auto_789:open",
+    }));
+    expect(mockGetUserFollowStatus).toHaveBeenCalled();
+    expect(mockSendDirectMessageWithButton).toHaveBeenCalledWith(
+      META_AUTH, "ig_456", "commenter_999", expect.any(String),
+      expect.any(String), "followcheck:auto_789"
+    );
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
+    expect(mockSendDirectMessageWithLinkButton).not.toHaveBeenCalled();
+  });
+
+  it("does not release the link after unavailable follow re-checks", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue(gated);
+    mockGetUserFollowStatus.mockResolvedValue(null);
+    await getProcessor()(createMockPostbackJob({
+      instagramAccountId: "ig_456", userId: "commenter_999",
+      payload: "followcheck:auto_789", followRecheckAttempt: 2,
+    }));
+    expect(mockSendDirectMessageWithButton).toHaveBeenCalled();
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
+    expect(mockSendDirectMessageWithLinkButton).not.toHaveBeenCalled();
+    expect(mockPrisma.operationalEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ message: "Follow gate could not verify a button tap" }),
+    }));
+  });
+
+  it("releases an old reveal button once the current follow gate is satisfied", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue(gated);
+    mockGetUserFollowStatus.mockResolvedValue(true);
+    await getProcessor()(createMockPostbackJob({
+      instagramAccountId: "ig_456", userId: "commenter_999",
+      payload: "reveal:auto_789:open",
+    }));
+    expect(mockGetUserFollowStatus).toHaveBeenCalled();
+    expect(mockSendDirectMessage).toHaveBeenCalledOnce();
+    expect(mockSendDirectMessageWithButton).not.toHaveBeenCalled();
+  });
+
   it("re-checks a first false follow later instead of rejecting the tap", async () => {
     mockPrisma.automation.findFirst.mockResolvedValue(gated);
     mockGetUserFollowStatus.mockResolvedValue(false);
@@ -2167,3 +2273,6 @@ it("retains the public reply claim if sending succeeded but its log write failed
   expect(sendCommentReply).toHaveBeenCalledTimes(1);
   expect(mockSendPrivateReply).toHaveBeenCalledTimes(1);
 });
+
+// Existing delivery scenarios use mocked providers in the approved-send mode.
+beforeEach(() => { vi.stubEnv("OUTBOUND_MESSAGES_ENABLED", "true"); });

@@ -1,0 +1,8 @@
+# Include only for the approved WavGrind migration. The three selected campaigns
+# carry persisted comment-creation cutoffs; tests, Morpho and Legacy stay paused.
+# All sends are performed by the worker. Web and cron retain their send-off gates.
+version: "3.8"
+services:
+  worker:
+    environment:
+      OUTBOUND_MESSAGES_ENABLED: "true"

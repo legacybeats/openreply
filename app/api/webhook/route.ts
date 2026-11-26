@@ -5,6 +5,7 @@ import {
   verifyWebhookSignature,
 } from "@/lib/meta/webhook";
 import { processInstagramWebhook } from "@/lib/queue/process-webhook";
+import { summarizeWebhookReceipt } from "@/lib/meta/webhook-diagnostics";
 
 
 export async function GET(request: NextRequest) {
@@ -61,9 +62,19 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Record receipt before account filtering. Otherwise an unrecognised Meta
+    // envelope/account looks exactly like a callback that was never delivered.
+    await prisma.operationalEvent.create({ data: {
+      source: "SYSTEM", level: "INFO", message: "Meta webhook received",
+      payload: summarizeWebhookReceipt(payload),
+    } }).catch(() => {});
     await processInstagramWebhook({ payload: payload as Parameters<typeof parseCommentEvents>[0], provider: 'META' });
     return NextResponse.json({ success: true });
   } catch {
+    await prisma.operationalEvent.create({ data: {
+      source: "SYSTEM", level: "WARNING", message: "Meta webhook processing failed",
+      payload: summarizeWebhookReceipt(payload),
+    } }).catch(() => {});
     return NextResponse.json({ success: false, error: 'Webhook processing failed' }, { status: 500 });
   }
 }

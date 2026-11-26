@@ -17,6 +17,12 @@ export async function processInstagramWebhook({ payload: incoming, provider, wor
   const accountMap = new Map(accounts.map(a => [a.instagramId, a]));
   const allowed = new Set(accountMap.keys());
   const payload = { ...incoming, entry: incoming.entry.filter(e => allowed.has(e.id)) };
+  if (payload.entry.length !== incoming.entry.length) {
+    await prisma.operationalEvent.create({ data: {
+      source: 'SYSTEM', level: 'INFO', message: 'Webhook entries excluded by account scope',
+      payload: { provider, receivedEntries: incoming.entry.length, matchedEntries: payload.entry.length },
+    } }).catch(() => {});
+  }
   if (!payload.entry.length) return;
   const webhookEvent = await prisma.webhookEvent.create({
     data: {

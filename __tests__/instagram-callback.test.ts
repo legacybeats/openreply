@@ -49,6 +49,8 @@ beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
   vi.stubEnv("NEXTAUTH_URL", "https://app.test");
+  vi.stubEnv("META_CONNECTIONS_ENABLED", "true");
+  vi.stubEnv("META_LOGIN_MODE", "");
   mockPrisma.workspaceMember.findFirst.mockResolvedValue({ role: "OWNER" });
   mockPrisma.instagramAccount.findUnique.mockResolvedValue(null);
   mockPrisma.operationalEvent.create.mockResolvedValue({});
@@ -56,41 +58,68 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Instagram OAuth callback", () => {
-  it("connects through Instagram Login exactly as before when Unified login is not configured", async () => {
-    vi.stubEnv("INSTAGRAM_APP_SECRET", "ig-secret");
-    mockExchange.mockResolvedValue({ accessToken: "short", userId: "1" });
-    respond({ access_token: "long", expires_in: 5184000 });
-    respond({ id: "app-scoped", user_id: "ig1", username: "shop" });
-    respond({ success: true });
-
-    const response = await callback();
-
-    expect(response.headers.get("location")).toBe(
-      "https://app.test/dashboard?connected=true"
-    );
-    expect(urls()[0]).toMatch(/^https:\/\/graph\.instagram\.com\/v[\d.]+\/access_token\?/);
-    expect(urls()[1]).toMatch(/^https:\/\/graph\.instagram\.com\/v[\d.]+\/me\?/);
-    expect(urls()[2]).toMatch(/^https:\/\/graph\.instagram\.com\/v[\d.]+\/ig1\/subscribed_apps$/);
-    expect(mockPrisma.instagramAccount.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        instagramId: "ig1",
-        accessToken: "enc:long",
-        metaLogin: "INSTAGRAM",
-        tokenExpiresAt: expect.any(Date),
-      }),
-    });
+  it("blocks legacy login before any token exchange or account lookup", async () => {
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "");
+    expect((await callback()).status).toBe(403);
+    expect(mockExchange).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("connects every account a Unified login granted, on graph.facebook.com", async () => {
+  it("blocks callbacks while connections are disabled", async () => {
+    vi.stubEnv("META_CONNECTIONS_ENABLED", "false");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "config");
+    expect((await callback()).status).toBe(403);
+    expect(mockExchange).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps direct Instagram callbacks blocked by the global connection gate", async () => {
+    vi.stubEnv("META_LOGIN_MODE", "INSTAGRAM");
+    vi.stubEnv("META_CONNECTIONS_ENABLED", "false");
+    expect((await callback()).status).toBe(403);
+    expect(mockExchange).not.toHaveBeenCalled();
+  });
+
+  it("reconnects the same approved account through Instagram Login without creating a duplicate", async () => {
+    vi.stubEnv("META_LOGIN_MODE", "INSTAGRAM");
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "retained-config");
+    vi.stubEnv("INSTAGRAM_APP_SECRET", "test-only-secret");
+    mockExchange.mockResolvedValue({ accessToken: "short", userId: "scoped" });
+    mockPrisma.instagramAccount.findUnique.mockResolvedValue({ id: "existing-account" });
+    mockPrisma.instagramAccount.updateMany.mockResolvedValue({ count: 1 });
+    respond({ access_token: "long", expires_in: 5184000 });
+    respond({ id: "scoped", user_id: "professional", username: "wavgrind" });
+    respond({ success: true });
+    expect((await callback()).headers.get("location")).toBe("https://app.test/dashboard?connected=true");
+    expect(urls().every(url => url.startsWith("https://graph.instagram.com/"))).toBe(true);
+    expect(urls()[2]).toMatch(/\/professional\/subscribed_apps$/);
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body).subscribed_fields.sort()).toEqual(["comments", "messages", "messaging_postbacks"].sort());
+    expect(mockPrisma.instagramAccount.updateMany).toHaveBeenCalledWith({where:{id:"existing-account",workspaceId:"workspace",provider:"META"},data:expect.objectContaining({accessToken:"enc:long",metaLogin:"INSTAGRAM",webhookSubscribed:true})});
+    expect(mockPrisma.instagramAccount.create).not.toHaveBeenCalled();
+  });
+
+  it("does not subscribe or save an unapproved direct Instagram account", async () => {
+    vi.stubEnv("META_LOGIN_MODE", "INSTAGRAM");
+    vi.stubEnv("INSTAGRAM_APP_SECRET", "test-only-secret");
+    mockExchange.mockResolvedValue({ accessToken: "short", userId: "scoped" });
+    respond({ access_token: "long", expires_in: 5184000 });
+    respond({ id:"scoped", user_id:"17841447591603859", username:"sonix.audio" });
+    expect((await callback()).headers.get("location")).toContain("instagram=already_connected");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.instagramAccount.create).not.toHaveBeenCalled();
+    expect(mockPrisma.instagramAccount.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("connects only approved accounts from a mixed Unified grant, on graph.facebook.com", async () => {
     vi.stubEnv("META_LOGIN_CONFIG_ID", "config");
     vi.stubEnv("META_APP_ID", "app");
     vi.stubEnv("FACEBOOK_APP_SECRET", "secret");
     mockExchange.mockResolvedValue({ accessToken: "suat", userId: "" });
     respond({ data: { expires_at: 0 } });
-    respond({ data: [{ id: "ig1" }, { id: "ig2" }] });
-    respond({ id: "ig1", username: "one" });
+    respond({ data: [{ id: "ig1", username: "wavgrind" }, { id: "17841447591603859", username: "sonix.audio" }, { id: "ig2", username: "legacybeats" }, { id: "unknown" }] });
+    respond({ id: "ig1", username: "wavgrind" });
     respond({ success: true });
-    respond({ id: "ig2", username: "two" });
+    respond({ id: "ig2", username: "legacybeats" });
     respond({ success: true });
 
     const response = await callback();
@@ -107,10 +136,11 @@ describe("Instagram OAuth callback", () => {
     expect(urls()[3]).toMatch(/\/ig1\/subscribed_apps$/);
     expect(urls()[4]).toContain("/ig2?");
     expect(mockPrisma.instagramAccount.create).toHaveBeenCalledTimes(2);
+    expect(urls().some(url => url.includes("17841447591603859") || url.includes("/unknown"))).toBe(false);
     expect(mockPrisma.instagramAccount.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         instagramId: "ig2",
-        username: "two",
+        username: "legacybeats",
         accessToken: "enc:suat",
         metaLogin: "UNIFIED",
         // A token that never expires stores no expiry.
@@ -128,8 +158,8 @@ describe("Instagram OAuth callback", () => {
     mockPrisma.instagramAccount.findUnique.mockResolvedValue({ id: "row" });
     mockPrisma.instagramAccount.updateMany.mockResolvedValue({ count: 1 });
     respond({ data: { expires_at: 1_900_000_000 } });
-    respond({ data: [{ id: "ig1" }] });
-    respond({ id: "ig1", username: "one" });
+    respond({ data: [{ id: "ig1", username: "wavgrind" }] });
+    respond({ id: "ig1", username: "wavgrind" });
     respond({ success: true });
 
     await callback();

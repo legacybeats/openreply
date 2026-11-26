@@ -222,6 +222,9 @@ model Automation {
   publicReplyMessage String?
   publicReplyMessages String[] @default([])
   isActive       Boolean @default(true)
+  // Migration boundary: never reply to comments created at/before this time.
+  // Set by the operator when taking over an existing keyword from another tool.
+  commentsNotBefore DateTime?
   wholeWordMatch Boolean @default(true)
   reportShareSlug    String? @unique
   reportShareEnabled Boolean @default(true)

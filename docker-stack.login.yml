@@ -1,0 +1,8 @@
+# Approved login-email setup only, after sender verification and private key entry.
+# Include alongside the private and HTTPS stack files on this deployment.
+# Meta connections and outbound messaging keep their independent default-off gates.
+version: "3.8"
+services:
+  web:
+    environment:
+      LOGIN_EMAIL_ENABLED: "true"

@@ -113,6 +113,25 @@ describe("comment polling does not recreate unsafe sends", () => {
       },
     ]);
   });
+  it("filters old, boundary and unknown timestamps even if the API ignores sinceMs", async () => {
+    const campaign = (await mockPrisma.automation.findMany())[0];
+    const cutoff = new Date(Date.now() - 60_000);
+    mockPrisma.automation.findMany.mockResolvedValue([{ ...campaign, commentsNotBefore: cutoff }]);
+    mockPrisma.dmLog.findMany.mockResolvedValue([]);
+    readComments.mockResolvedValue([
+      { id: "old", text: "AI", from: { id: "reader" }, timestamp: new Date(cutoff.getTime()-1000).toISOString() },
+      { id: "boundary", text: "AI", from: { id: "reader" }, timestamp: cutoff.toISOString() },
+      { id: "unknown", text: "AI", from: { id: "reader" } },
+      { id: "invalid", text: "AI", from: { id: "reader" }, timestamp: "invalid" },
+      { id: "fresh", text: "AI", from: { id: "reader" }, timestamp: new Date().toISOString() },
+    ]);
+    await reconcileComments();
+    expect(readComments).toHaveBeenCalledWith(expect.objectContaining({ sinceMs: cutoff.getTime() }));
+    expect(queueAdd).toHaveBeenCalledOnce();
+    expect(queueAdd).toHaveBeenCalledWith("process-comment", expect.objectContaining({
+      commentId: "fresh", commentCreatedAt: expect.any(String),
+    }));
+  });
   it.each([
     { status: "FAILED", attempts: 1, dmDeliveryUnconfirmed: true },
     { status: "FAILED", attempts: 3, dmDeliveryUnconfirmed: false },

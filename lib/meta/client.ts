@@ -1,4 +1,6 @@
+import { assertOutboundEnabled } from "@/lib/deployment-policy";
 import { getMetaGraphApiVersion, requireEnv } from "@/lib/env";
+import { INSTAGRAM_WEBHOOK_FIELDS } from "@/lib/meta/webhook-fields";
 
 /**
  * A Meta access token and the setup that issued it. A bare string is an
@@ -195,6 +197,7 @@ export async function sendPrivateReply(
   commentId: string,
   message: string
 ): Promise<{ recipient_id: string; message_id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
@@ -228,6 +231,7 @@ export async function sendPrivateReplyWithButton(
   buttonTitle: string,
   payload: string
 ): Promise<{ recipient_id: string; message_id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
@@ -272,6 +276,7 @@ export async function sendDirectMessageWithButton(
   buttonTitle: string,
   payload: string
 ): Promise<{ recipient_id: string; message_id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
@@ -391,6 +396,7 @@ export async function sendPrivateReplyWithLinkButton(
   text: string,
   buttons: LinkButton[]
 ): Promise<{ recipient_id: string; message_id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
@@ -429,6 +435,7 @@ export async function sendDirectMessage(
   userId: string,
   message: string
 ): Promise<{ recipient_id: string; message_id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
@@ -459,6 +466,7 @@ export async function sendDirectMessageWithLinkButton(
   text: string,
   buttons: LinkButton[]
 ): Promise<{ recipient_id: string; message_id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
@@ -492,6 +500,7 @@ export async function sendCommentReply(
   commentId: string,
   message: string
 ): Promise<{ id: string }> {
+  assertOutboundEnabled();
   const accessToken = tokenOf(auth);
   const response = await fetch(
     `${instagramGraphBase(auth)}/${commentId}/replies`,
@@ -520,6 +529,18 @@ export async function getMediaComments(
   const response = await fetch(url.toString());
   const data = await handleResponse<{ data: InstagramComment[] }>(response);
   return data.data;
+}
+
+/** Read only creation metadata; webhook receipt time is not comment age. */
+export async function getCommentTimestamp(auth: MetaAuth, commentId: string): Promise<string | null> {
+  const url = new URL(`${instagramGraphBase(auth)}/${encodeURIComponent(commentId)}`);
+  url.searchParams.set("fields", "id,timestamp");
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${tokenOf(auth)}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  const data = await handleResponse<{ id?: string; timestamp?: string }>(response);
+  return data.id === commentId && typeof data.timestamp === "string" ? data.timestamp : null;
 }
 
 /**
@@ -970,7 +991,7 @@ export async function subscribeInstagramAccountToWebhooks(
         Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
-        subscribed_fields: ["comments", "messages"],
+        subscribed_fields: INSTAGRAM_WEBHOOK_FIELDS,
       }),
     }
   );

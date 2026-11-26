@@ -47,6 +47,21 @@ export interface WebhookCommentEvent {
   originalMediaId?: string;
 }
 
+interface WebhookMessagingEvent {
+  sender?: { id?: string };
+  recipient?: { id?: string };
+  postback?: { mid?: string; title?: string; payload?: string };
+  read?: { watermark?: number; seq?: number };
+  message?: {
+    mid?: string;
+    text?: string;
+    is_echo?: boolean;
+    is_deleted?: boolean;
+    is_unsupported?: boolean;
+    attachments?: Array<{ type?: string }>;
+  };
+}
+
 interface WebhookEntry {
   id: string;
   time: number;
@@ -69,22 +84,28 @@ interface WebhookEntry {
         media_product_type?: string;
       };
       media_id?: string;
-    };
+    } & WebhookMessagingEvent;
   }>;
-  messaging?: Array<{
-    sender?: { id?: string };
-    recipient?: { id?: string };
-    postback?: { mid?: string; title?: string; payload?: string };
-    read?: { watermark?: number; seq?: number };
-    message?: {
-      mid?: string;
-      text?: string;
-      is_echo?: boolean;
-      is_deleted?: boolean;
-      is_unsupported?: boolean;
-      attachments?: Array<{ type?: string }>;
-    };
-  }>;
+  messaging?: WebhookMessagingEvent[];
+}
+
+// Meta can wrap messaging events in changes[].value (including dashboard
+// postback notifications) or entry.messaging. Normalize only subscribed event
+// fields; never treat standby, comments or unrelated change data as a DM tap.
+function* messagingEvents(entry: WebhookEntry): Generator<WebhookMessagingEvent> {
+  yield* entry.messaging ?? [];
+  for (const change of entry.changes ?? []) {
+    const value = change.value;
+    if (!value) continue;
+    const identity = { sender: value.sender, recipient: value.recipient };
+    if (change.field === "messaging_postbacks") {
+      yield { ...identity, postback: value.postback };
+    } else if (change.field === "messages") {
+      yield { ...identity, message: value.message };
+    } else if (change.field === "messaging_seen") {
+      yield { ...identity, read: value.read };
+    }
+  }
 }
 
 export interface WebhookMessageEvent {
@@ -173,7 +194,7 @@ export function parsePostbackEvents(
   if (payload.object !== "instagram") return events;
 
   for (const entry of payload.entry ?? []) {
-    for (const messaging of entry.messaging ?? []) {
+    for (const messaging of messagingEvents(entry)) {
       const postbackPayload = messaging.postback?.payload;
       const userId = messaging.sender?.id;
       const accountId = entry.id ?? messaging.recipient?.id;
@@ -212,7 +233,7 @@ export function parseMessageEvents(
   if (payload.object !== "instagram") return events;
 
   for (const entry of payload.entry ?? []) {
-    for (const messaging of entry.messaging ?? []) {
+    for (const messaging of messagingEvents(entry)) {
       const message = messaging.message;
       if (!message) continue;
       if (message.is_echo || message.is_deleted || message.is_unsupported) {
@@ -251,7 +272,7 @@ export function parseReadEvents(payload: WebhookPayload): WebhookReadEvent[] {
   if (payload.object !== "instagram") return events;
 
   for (const entry of payload.entry ?? []) {
-    for (const messaging of entry.messaging ?? []) {
+    for (const messaging of messagingEvents(entry)) {
       if (!messaging.read) continue;
 
       const userId = messaging.sender?.id;

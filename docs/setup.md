@@ -1,3 +1,5 @@
+> **WavGrind fork:** use `docs/deploy-wavgrind.md` for this installation. The upstream instructions below are reference only. This fork requires `ALLOWED_EMAILS`, uses Resend only, and defaults email, Meta connections, and outbound messages to disabled. Production credentials belong in the server Docker secret store, never `.env` files.
+
 # Setup
 
 Get OpenReply running end to end: choose your Instagram connection, deploy the web app and worker, configure the databases, and test a campaign. OpenReply is self-hosted with either provider.

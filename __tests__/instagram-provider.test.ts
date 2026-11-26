@@ -369,3 +369,6 @@ it('treats a lost public-reply response as unconfirmed instead of safe to repeat
   await expect(sendCommentReply({ context, commentId: 'comment', postId: 'post', message: 'Thanks' })).rejects.toMatchObject({ name: 'ZernioDeliveryUnconfirmedError' });
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
+
+// Existing delivery tests exercise the explicitly enabled mode with mocked fetch.
+beforeEach(() => { vi.stubEnv("OUTBOUND_MESSAGES_ENABLED", "true"); });

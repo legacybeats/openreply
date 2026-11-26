@@ -19,7 +19,7 @@ const campaignSchema = z.object({
   publicReplyMessage: z.string().max(1000).optional().nullable(),
   trackedUrl: z.string().optional().nullable(),
   wholeWordMatch: z.boolean().optional().default(true),
-  isActive: z.boolean().optional().default(true),
+  isActive: z.boolean().optional().default(false),
 });
 
 const importSchema = z.object({

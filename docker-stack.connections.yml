@@ -1,0 +1,15 @@
+# Approved account setup for @wavgrind/@legacybeats only.
+# Use after Meta app credentials, minimal login configuration and webhook verify.
+# The code filters account grants; this never enables outbound delivery.
+version: "3.8"
+services:
+  web:
+    environment:
+      META_CONNECTIONS_ENABLED: "true"
+      META_GRAPH_API_VERSION: v27.0
+  worker:
+    environment:
+      META_GRAPH_API_VERSION: v27.0
+  cron:
+    environment:
+      META_GRAPH_API_VERSION: v27.0

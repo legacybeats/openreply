@@ -1,0 +1,13 @@
+# Include only for the approved direct Instagram Login experiment.
+# Credentials stay in the existing server secret store. Existing connected
+# accounts retain their recorded login mode until individually reconnected.
+services:
+  web:
+    environment:
+      META_LOGIN_MODE: INSTAGRAM
+  worker:
+    environment:
+      META_LOGIN_MODE: INSTAGRAM
+  cron:
+    environment:
+      META_LOGIN_MODE: INSTAGRAM

@@ -5,6 +5,8 @@ import {
   getMissingInstagramOAuthEnv,
   isDemoHostname,
   isEmailAllowedToSignIn,
+  isUnifiedLogin,
+  isDirectInstagramLoginEnabled,
   requireEnv,
 } from "../lib/env";
 
@@ -48,16 +50,31 @@ describe("environment helpers", () => {
       "FACEBOOK_APP_SECRET",
     ]);
   });
+
+  it("requires Instagram credentials after an explicit mode switch, without erasing Unified config", () => {
+    vi.stubEnv("META_LOGIN_CONFIG_ID", "keep-config");
+    vi.stubEnv("META_LOGIN_MODE", "INSTAGRAM");
+    vi.stubEnv("INSTAGRAM_APP_ID", "");
+    vi.stubEnv("INSTAGRAM_APP_SECRET", "");
+    vi.stubEnv("ENCRYPTION_KEY", "a".repeat(64));
+    vi.stubEnv("NEXTAUTH_SECRET", "secret");
+    expect(isDirectInstagramLoginEnabled()).toBe(true);
+    expect(isUnifiedLogin()).toBe(false);
+    expect(getMissingInstagramOAuthEnv()).toEqual(["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"]);
+    vi.stubEnv("META_LOGIN_MODE", "");
+    expect(isUnifiedLogin()).toBe(true);
+  });
 });
 
 describe("sign-in allowlist", () => {
-  it("allows everyone when ALLOWED_EMAILS is unset", () => {
-    expect(isEmailAllowedToSignIn("anyone@example.com")).toBe(true);
+  it("denies everyone when ALLOWED_EMAILS is unset", () => {
+    vi.stubEnv("ALLOWED_EMAILS", undefined);
+    expect(isEmailAllowedToSignIn("anyone@example.com")).toBe(false);
   });
 
-  it("allows everyone when ALLOWED_EMAILS is empty or only separators", () => {
+  it("denies everyone when ALLOWED_EMAILS is empty or only separators", () => {
     vi.stubEnv("ALLOWED_EMAILS", "  , ,  ");
-    expect(isEmailAllowedToSignIn("anyone@example.com")).toBe(true);
+    expect(isEmailAllowedToSignIn("anyone@example.com")).toBe(false);
   });
 
   it("only allows listed addresses once ALLOWED_EMAILS is set", () => {

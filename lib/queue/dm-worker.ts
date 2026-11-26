@@ -5,6 +5,7 @@ import {
   isDeliveryUnconfirmed,
 } from "@/lib/instagram/delivery-errors";
 import { claimCommentDelivery, MAX_COMMENT_SEND_ATTEMPTS } from "./comment-delivery";
+import { commentAfterCutover } from "@/lib/automation/comment-cutover";
 import { createHash } from "node:crypto";
 import { UnrecoverableError, Worker, type Job } from "bullmq";
 import {
@@ -25,6 +26,7 @@ import {
   RateLimitError,
   TokenExpiredError,
   getUserFollowStatus,
+  getCommentTimestamp,
   resolveRecipientName,
   sendCommentReply,
   sendDirectMessage,
@@ -542,6 +544,22 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         },
       });
       continue;
+    }
+
+    // Check before either outbound leg. Old queued/retried webhook jobs have
+    // no creation time, so resolve the actual comment metadata, not job age.
+    if (automation.commentsNotBefore) {
+      let createdAt = job.data.commentCreatedAt;
+      if (!createdAt) {
+        try {
+          createdAt = await getCommentTimestamp({ context: accessToken, commentId }) ?? undefined;
+        } catch {
+          // A metadata failure must never turn into an unguarded send. Let the
+          // queue retry using a generic error that contains no API credential.
+          throw new Error("Comment creation time unavailable; cutover guard blocked delivery");
+        }
+      }
+      if (!commentAfterCutover(automation.commentsNotBefore, createdAt)) continue;
     }
 
     await prisma.dmLog.upsert({
@@ -1142,13 +1160,10 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
     ]))
     .digest("hex");
 
-  // Follow-gate: before revealing the link, verify the user follows. On a
-  // `followcheck:` tap a non-follower gets the prompt again (no quota spent);
-  // on a read fallback a non-follower is silently skipped — the gate must not
-  // be bypassable by just reading the DM and waiting. On a tap, following or
-  // unverifiable (null) falls through and delivers the link — fail-open so a
-  // real follower is never trapped.
-  if ((isFollowCheck || fallback) && automation.requireFollow) {
+  // The current campaign setting governs every link release, including old
+  // `reveal:` buttons sent before follow-gating was enabled. Unknown follow
+  // status is not confirmation: re-check/prompt instead of releasing the link.
+  if (automation.requireFollow) {
     const follows = await getUserFollowStatus({
       context: accessToken,
       recipientId: userId,
@@ -1158,7 +1173,7 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
     // "User consent is required", i.e. null), so failing open here handed the
     // link to anyone who read the opening DM and waited, follower or not.
     if (fallback && follows !== true) return;
-    if (follows === false) {
+    if (follows !== true) {
       if (fallback) return;
 
       // A tap on an opening-DM button is not a claim to follow — most people
@@ -1166,8 +1181,8 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
       // right away. Only the prompt's own button earns the delayed re-check;
       // holding an opening tap for it left people staring at a silent chat.
       if (!fromOpeningDm) {
-        // A `false` on a button tap: give the follow time to register and look
-        // again, rather than rejecting someone who just followed.
+        // A false or unavailable result may be temporary. Give a new follow
+        // time to register before checking again.
         //
         // The job id is bucketed by the recheck window, not fixed per user.
         // BullMQ keeps completed jobs (removeOnComplete: count 1000) and silently
@@ -1207,17 +1222,18 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
           return;
         }
 
-        // Last `false`: they are genuinely not following. Record it — this
-        // branch used to return without writing anything at all, so a gate that
-        // turned people away left no trace and its rejection rate could not be
-        // measured, only guessed at from complaints.
+        // The last check still did not confirm a follow. Distinguish a known
+        // non-follower from an unavailable result without claiming either is
+        // a provider delivery failure.
         await prisma.operationalEvent
           .create({
             data: {
               workspaceId: automation.workspaceId,
               source: "WORKER",
               level: "INFO",
-              message: "Follow gate rejected a button tap",
+              message: follows === false
+                ? "Follow gate rejected a button tap"
+                : "Follow gate could not verify a button tap",
               payload: {
                 automationId: automation.id,
                 automationName: automation.name,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
-import { getBaseUrl, isUnifiedLogin, requireEnv } from "@/lib/env";
+import { getBaseUrl, isUnifiedLogin, isDirectInstagramLoginEnabled, requireEnv } from "@/lib/env";
 import { canConnectInstagramAccount } from "@/lib/instagram-accounts";
 import {
   getAssignedInstagramAccounts,
@@ -16,8 +16,12 @@ import {
   verifyOAuthState,
 } from "@/lib/meta/oauth";
 import { canManageWorkspace } from "@/lib/workspace-access";
+import { areMetaConnectionsEnabled, isAllowedInstagramAccount } from "@/lib/deployment-policy";
 
 export async function GET(request: NextRequest) {
+  if (!areMetaConnectionsEnabled() || (!isUnifiedLogin() && !isDirectInstagramLoginEnabled())) {
+    return NextResponse.json({ error: "Account connections are disabled pending setup approval" }, { status: 403 });
+  }
   const code = request.nextUrl.searchParams.get("code");
   const error = request.nextUrl.searchParams.get("error");
   const state = verifyOAuthState(request.nextUrl.searchParams.get("state"));
@@ -72,7 +76,7 @@ export async function GET(request: NextRequest) {
         return null;
       });
       // One Unified login can grant several Instagram accounts; connect each.
-      accountIds = (await getAssignedInstagramAccounts(accessToken)).map(
+      accountIds = (await getAssignedInstagramAccounts(accessToken)).filter(isAllowedInstagramAccount).map(
         (account) => account.id
       );
     } else {
@@ -95,6 +99,7 @@ export async function GET(request: NextRequest) {
       // can be matched back to this account. Fall back to id if user_id is
       // ever absent.
       const instagramId = userInfo.user_id ?? userInfo.id;
+      if (!isAllowedInstagramAccount({ id: instagramId, username: userInfo.username })) continue;
       const connection = await canConnectInstagramAccount({
         workspaceId: state.workspaceId,
         instagramId,

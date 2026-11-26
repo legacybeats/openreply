@@ -11,6 +11,16 @@ type Comment = {
   replies?: Comment[];
 };
 
+export async function getCommentTimestamp({ context, commentId }: {
+  context: InstagramContext;
+  commentId: string;
+}): Promise<string | null> {
+  if (context.provider === "META") return meta.getCommentTimestamp(context, commentId);
+  // Polling carries the provider's creation time. Do not guess for a legacy
+  // webhook/job when the provider has no single-comment metadata reader.
+  return null;
+}
+
 export async function getRecentMediaComments({
   context,
   mediaId,

@@ -1,3 +1,5 @@
+# HISTORICAL: this env-file based stack is not used by the WavGrind deployment.
+# Use docker-stack.private.yml and docs/deploy-wavgrind.md instead.
 # Production stack for a single public server (WavGrind fork).
 # Differences from docker-compose.yml + docker-compose.app.yml:
 #   - Postgres and Redis are NOT published to the internet (no ports:), Redis needs a password,
