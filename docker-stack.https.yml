@@ -24,7 +24,7 @@ services:
         tmpfs:
           size: 16777216
     configs:
-      - source: caddyfile
+      - source: caddyfile_20261126
         target: /etc/caddy/Caddyfile
       - source: caddy_start
         target: /opt/caddy-start.sh
@@ -47,7 +47,8 @@ services:
         max-file: "2"
 
 configs:
-  caddyfile:
+  # Swarm configs are immutable; version the name when the file changes.
+  caddyfile_20261126:
     file: ./deploy/Caddyfile
   caddy_start:
     file: ./scripts/caddy-start.sh

@@ -41,6 +41,8 @@ Certificate keys and ACME account state live in Caddy's memory-backed `/data`. `
 
 The installed `openreply-tls-state.timer` snapshots after boot and every 12 hours to preserve renewals. Check its last service result after upgrades. Before a stack redeploy, set `CADDY_STATE_SECRET` to the name in that server pointer, then deploy both stack files together. Do not redeploy an old TLS secret or expose Docker's manager port. A snapshot rotates Caddy only when its canonical persistent state changes, which can briefly interrupt HTTPS on this single-node deployment.
 
+After the approved login-mail setup is enabled, also include `docker-stack.login.yml`. It enables login email on the web service only; Meta connections and outbound delivery remain off. Always read `APP_SECRET_NAME` from the current server pointer before deploying, especially after Luke has privately installed another provider credential. Never redeploy while his installer is running. Docker configs are immutable, so use a new Caddy config name when its source file changes.
+
 ## Gates before any public pilot
 
 1. HTTPS admin approval and deployment are complete. This is separate from permission to send DMs.
