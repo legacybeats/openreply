@@ -21,9 +21,13 @@ For the private deployment, the operator can install the Instagram app secret
 with the existing hidden-input installer, selecting `instagram` and the
 approved non-secret app ID. The installer preserves other provider credentials
 and does not select a login mode or enable sending. Never run its input step
-through an agent-recorded terminal. The webhook helper's
-`--login-mode instagram` selects the Instagram app instead of the parent Meta
-app; it is read-only without `--apply` and refuses to replace another consumer.
+through an agent-recorded terminal. Configure the direct Instagram app webhook
+in Meta's App Dashboard. Meta documents that this subscription cannot be
+created through the App Subscriptions API; the helper rejects
+`--login-mode instagram` before making any API request. Its existing Unified
+mode remains separate. Any private verification-token transfer to the dashboard
+must be completed by the operator without exposing the value in an agent tool,
+chat, or ordinary file.
 
 Before a user reconnects, verify the correct app ID, exact redirect URL, callback
 and three subscribed fields, accepted tester role, installed secret (presence
@@ -36,3 +40,4 @@ campaign testing and production activation require their own approval.
 Sources:
 - https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/business-login
 - https://developers.chatwoot.com/self-hosted/configuration/features/integrations/instagram-via-instagram-business-login
+- https://developers.facebook.com/docs/graph-api/reference/app/subscriptions
