@@ -22,7 +22,7 @@ async function checkDatabase(): Promise<HealthCheck> {
   } catch (error) {
     return {
       status: "error",
-      detail: error instanceof Error ? error.message : "Database check failed",
+      detail: "Database check failed",
     };
   }
 }
@@ -34,7 +34,7 @@ async function checkRedis(): Promise<HealthCheck> {
   } catch (error) {
     return {
       status: "error",
-      detail: error instanceof Error ? error.message : "Redis check failed",
+      detail: "Redis check failed",
     };
   }
 }
@@ -75,7 +75,7 @@ async function checkQueue(): Promise<HealthCheck & { counts?: unknown }> {
   } catch (error) {
     return {
       status: "error",
-      detail: error instanceof Error ? error.message : "Queue check failed",
+      detail: "Queue check failed",
     };
   }
 }
